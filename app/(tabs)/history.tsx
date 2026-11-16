@@ -20,6 +20,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import FadeIn from '@/components/ui/FadeIn';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import StatCard from '@/components/ui/StatCard';
+import StatusBadge from '@/components/ui/StatusBadge';
 import { COLORS } from '@/constants/colors';
 import { FONT_MONO, RADIUS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
@@ -30,6 +31,7 @@ import {
   type AttendanceRecord,
   type TeacherEventAttendance,
 } from '@/lib/attendance';
+import { deriveEventStatus } from '@/lib/events';
 
 function formatWhen(value: string) {
   return new Date(value).toLocaleString(undefined, {
@@ -61,8 +63,8 @@ export default function HistoryScreen() {
       return;
     }
     setLoading(true);
-    if (role === 'teacher') {
-      const next = await getTeacherEventAttendance(user.id);
+    if (role === 'teacher' || role === 'admin') {
+      const next = await getTeacherEventAttendance(user.id, role === 'admin');
       setEvents(next);
       setRecords([]);
     } else {
@@ -104,22 +106,32 @@ export default function HistoryScreen() {
   ).length;
   const totalScans = events.reduce((sum, event) => sum + event.attendeeCount, 0);
   const isTeacher = role === 'teacher';
+  const isAdmin = role === 'admin';
+  const isStaff = isTeacher || isAdmin;
 
   const header = (
     <>
       <FadeIn>
         <ScreenHeader
           eyebrow="History"
-          title={isTeacher ? 'Attendance log' : 'Your check-ins'}
+          title={
+            isAdmin
+              ? 'Campus attendance log'
+              : isTeacher
+                ? 'Attendance log'
+                : 'Your check-ins'
+          }
           subtitle={
-            isTeacher
-              ? 'Every session you created and who checked in.'
-              : 'A verified timeline of every event you attended.'
+            isAdmin
+              ? 'Every session on campus and who checked in.'
+              : isTeacher
+                ? 'Every session you created and who checked in.'
+                : 'A verified timeline of every event you attended.'
           }
           right={
             <Badge
-              label={isTeacher ? 'Teacher' : 'Student'}
-              tone={isTeacher ? 'violet' : 'info'}
+              label={isAdmin ? 'Admin' : isTeacher ? 'Teacher' : 'Student'}
+              tone={isAdmin ? 'violet' : isTeacher ? 'violet' : 'info'}
             />
           }
         />
@@ -127,7 +139,7 @@ export default function HistoryScreen() {
 
       <FadeIn delay={60}>
         <View style={styles.statsRow}>
-          {isTeacher ? (
+          {isStaff ? (
             <>
               <StatCard
                 icon="calendar-outline"
@@ -174,7 +186,7 @@ export default function HistoryScreen() {
     );
   }
 
-  if (isTeacher) {
+  if (isStaff) {
     return (
       <AppBackground>
         <SafeAreaView style={styles.safe} edges={['top']}>
@@ -228,12 +240,20 @@ export default function HistoryScreen() {
                             ? ` · ${formatWhen(item.startTime)}`
                             : ''}
                         </Text>
+                        {item.venue ? (
+                          <Text style={styles.monoSmall} numberOfLines={1}>
+                            {item.venue}
+                          </Text>
+                        ) : null}
                       </View>
-                      <Badge
-                        label={`${item.attendeeCount}`}
-                        tone={item.attendeeCount > 0 ? 'success' : 'neutral'}
-                        icon="people-outline"
-                      />
+                      <View style={styles.badgeStack}>
+                        <Badge
+                          label={`${item.attendeeCount}`}
+                          tone={item.attendeeCount > 0 ? 'success' : 'neutral'}
+                          icon="people-outline"
+                        />
+                        <StatusBadge status={deriveEventStatus(item)} />
+                      </View>
                       <Ionicons
                         name={open ? 'chevron-up' : 'chevron-down'}
                         size={18}
@@ -273,11 +293,7 @@ export default function HistoryScreen() {
                                   {formatWhen(attendee.scannedAt)}
                                 </Text>
                               </View>
-                              <Ionicons
-                                name="checkmark-circle"
-                                size={16}
-                                color={COLORS.success}
-                              />
+                              <StatusBadge status={attendee.status} />
                             </View>
                           ))
                         )}
@@ -338,9 +354,10 @@ export default function HistoryScreen() {
                     </Text>
                     <Text style={styles.mono} numberOfLines={1}>
                       {item.eventId}
+                      {item.eventVenue ? ` · ${item.eventVenue}` : ''}
                     </Text>
                   </View>
-                  <Badge label="Present" tone="success" />
+                  <StatusBadge status={item.status} />
                 </View>
                 <View style={styles.recordFooter}>
                   <Ionicons
@@ -351,6 +368,11 @@ export default function HistoryScreen() {
                   <Text style={styles.recordTime}>
                     {formatWhen(item.scannedAt)}
                   </Text>
+                  {item.eventStart ? (
+                    <Text style={styles.recordEventTime}>
+                      · Event {formatWhen(item.eventStart)}
+                    </Text>
+                  ) : null}
                 </View>
               </Card>
             </FadeIn>
@@ -377,6 +399,9 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   listContent: {
+    width: '100%',
+    maxWidth: 640,
+    alignSelf: 'center',
     paddingHorizontal: SPACING.xl,
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.lg,
@@ -432,6 +457,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.textSecondary,
   },
+  recordEventTime: {
+    flex: 1,
+    fontSize: 10,
+    color: COLORS.muted,
+  },
   eventCard: {
     marginBottom: SPACING.sm,
   },
@@ -484,6 +514,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: COLORS.textPrimary,
+  },
+  badgeStack: {
+    alignItems: 'flex-end',
+    gap: 4,
   },
   monoSmall: {
     fontSize: 10,

@@ -22,6 +22,11 @@ import LogoMark from '@/components/ui/LogoMark';
 import { COLORS } from '@/constants/colors';
 import { RADIUS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { signUp, authErrorMessage } from '@/lib/auth';
+import {
+  isValidEmail,
+  PASSWORD_MIN_LENGTH,
+  validatePassword,
+} from '@/lib/validation';
 
 type Role = 'student' | 'teacher';
 
@@ -57,10 +62,30 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
+    if (loading) return;
     setError(null);
 
-    if (!fullName.trim() || !email.trim() || !password || !confirmPassword) {
+    const trimmedName = fullName.trim();
+    const trimmedEmail = email.trim();
+
+    if (!trimmedName || !trimmedEmail || !password || !confirmPassword) {
       setError('All fields are required.');
+      return;
+    }
+
+    if (trimmedName.length < 2) {
+      setError('Enter your full name.');
+      return;
+    }
+
+    if (!isValidEmail(trimmedEmail)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
 
@@ -69,28 +94,35 @@ export default function RegisterScreen() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const { data, error: authError } = await signUp(email.trim(), password, {
-        full_name: fullName.trim(),
+      const {
+        data,
+        error: authError,
+        duplicate,
+        configError,
+      } = await signUp(trimmedEmail, password, {
+        full_name: trimmedName,
         role,
       });
 
-      if (authError) {
-        setError(authErrorMessage(authError.message));
+      if (configError) {
+        setError(configError);
+      } else if (duplicate) {
+        setError(authErrorMessage(null, true));
+      } else if (authError) {
+        setError(authErrorMessage(authError));
       } else if (data.session) {
         router.replace('/(tabs)');
       } else {
         setSuccess(true);
       }
-    } catch {
-      setError('An unexpected error occurred. Please try again.');
+    } catch (err) {
+      if (__DEV__) {
+        console.error('[register] signUp failed', err);
+      }
+      setError(authErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -187,8 +219,10 @@ export default function RegisterScreen() {
                       icon="lock-closed-outline"
                       value={password}
                       onChangeText={setPassword}
-                      placeholder="At least 6 characters"
+                      placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
                       secure
+                      autoComplete="new-password"
+                      textContentType="newPassword"
                       editable={!loading}
                     />
                     <FormField
@@ -198,7 +232,11 @@ export default function RegisterScreen() {
                       onChangeText={setConfirmPassword}
                       placeholder="Re-enter your password"
                       secure
+                      autoComplete="new-password"
+                      textContentType="newPassword"
                       editable={!loading}
+                      onSubmitEditing={handleRegister}
+                      returnKeyType="go"
                     />
 
                     <View style={styles.roleSection}>
@@ -311,6 +349,9 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
     paddingHorizontal: SPACING.xl,
     paddingTop: SPACING.lg,
     paddingBottom: SPACING.xxl,

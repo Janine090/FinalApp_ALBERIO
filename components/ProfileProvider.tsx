@@ -21,7 +21,7 @@ type ProfileContextValue = {
 const ProfileContext = createContext<ProfileContextValue | null>(null);
 
 export function ProfileProvider({ children }: PropsWithChildren) {
-  const { user } = useAuth();
+  const { user, revision } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -42,8 +42,38 @@ export function ProfileProvider({ children }: PropsWithChildren) {
   }, [user]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    let cancelled = false;
+
+    const loadProfile = async () => {
+      if (!user) {
+        if (!cancelled) {
+          setProfile(null);
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setLoading(true);
+      }
+
+      try {
+        const next = await getProfile(user.id);
+        if (!cancelled) {
+          setProfile(next);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, revision]);
 
   const value = useMemo(
     () => ({

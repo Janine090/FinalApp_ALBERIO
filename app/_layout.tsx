@@ -26,8 +26,9 @@ export default function RootLayout() {
     const path = segments?.[0];
     const inAuthGroup = path === 'login' || path === 'register';
     const inTabsGroup = path === '(tabs)';
+    const inProtectedStack = path === 'available-events';
 
-    if (!session && inTabsGroup) {
+    if (!session && (inTabsGroup || inProtectedStack)) {
       router.replace('/login');
     } else if (session && inAuthGroup) {
       router.replace('/(tabs)');
@@ -68,6 +69,7 @@ export default function RootLayout() {
         <Stack.Screen name="login" />
         <Stack.Screen name="register" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="available-events" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </>
   );

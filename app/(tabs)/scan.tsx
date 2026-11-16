@@ -99,7 +99,7 @@ export default function ScanScreen() {
     );
   }
 
-  if (role === 'teacher') {
+  if (role === 'teacher' || role === 'admin') {
     return (
       <AppBackground>
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -113,15 +113,21 @@ export default function ScanScreen() {
             </View>
             <Text style={styles.permissionTitle}>Student check-in only</Text>
             <Text style={styles.permissionText}>
-              You are signed in as a teacher. Teachers create events and monitor
-              attendance instead of scanning.
+              You are signed in as {role === 'admin' ? 'an administrator' : 'a teacher'}.
+              Staff manage events and monitor attendance instead of scanning.
             </Text>
             <View style={styles.permissionActions}>
               <AppButton
                 variant="primary"
-                title="Open Event Console"
-                icon="calendar-outline"
-                onPress={() => router.push('/teacher')}
+                title={
+                  role === 'admin'
+                    ? 'Open Admin Console'
+                    : 'Open Event Console'
+                }
+                icon={role === 'admin' ? 'shield-outline' : 'calendar-outline'}
+                onPress={() =>
+                  router.push(role === 'admin' ? '/admin' : '/teacher')
+                }
               />
               <AppButton
                 variant="ghost"

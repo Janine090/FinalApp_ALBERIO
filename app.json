@@ -24,7 +24,7 @@
       "package": "com.qrattalberio.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptiveicon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#080606"
       },
       "permissions": [
         "android.permission.CAMERA",

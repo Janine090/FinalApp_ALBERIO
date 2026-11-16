@@ -21,6 +21,7 @@ import LogoMark from '@/components/ui/LogoMark';
 import ActionTile from '@/components/ui/ActionTile';
 import SectionHeader from '@/components/ui/SectionHeader';
 import StatCard from '@/components/ui/StatCard';
+import StatusBadge from '@/components/ui/StatusBadge';
 import { COLORS } from '@/constants/colors';
 import { RADIUS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
@@ -31,6 +32,17 @@ import {
   type AttendanceRecord,
   type TeacherEventAttendance,
 } from '@/lib/attendance';
+import {
+  deriveEventStatus,
+  getAvailableEvents,
+  type CloudEvent,
+} from '@/lib/events';
+import {
+  getAdminOverview,
+  getMostAttendedEvents,
+  type AdminEventRow,
+  type AdminOverview,
+} from '@/lib/admin';
 
 function formatShort(value: string) {
   return new Date(value).toLocaleDateString(undefined, {
@@ -54,6 +66,9 @@ export default function HomeScreen() {
   const { profile, role, refresh } = useProfile();
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [events, setEvents] = useState<TeacherEventAttendance[]>([]);
+  const [available, setAvailable] = useState<CloudEvent[]>([]);
+  const [overview, setOverview] = useState<AdminOverview | null>(null);
+  const [topEvents, setTopEvents] = useState<AdminEventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -63,14 +78,33 @@ export default function HomeScreen() {
       return;
     }
     setLoading(true);
-    if (role === 'teacher') {
+    if (role === 'admin') {
+      const [nextOverview, nextTop] = await Promise.all([
+        getAdminOverview(),
+        getMostAttendedEvents(3),
+      ]);
+      setOverview(nextOverview.data);
+      setTopEvents(nextTop);
+      setEvents([]);
+      setRecords([]);
+      setAvailable([]);
+    } else if (role === 'teacher') {
       const next = await getTeacherEventAttendance(user.id);
       setEvents(next);
       setRecords([]);
+      setAvailable([]);
+      setOverview(null);
+      setTopEvents([]);
     } else {
-      const next = await getAttendanceHistory(user.id);
-      setRecords(next);
+      const [nextRecords, nextAvailable] = await Promise.all([
+        getAttendanceHistory(user.id),
+        getAvailableEvents(),
+      ]);
+      setRecords(nextRecords);
+      setAvailable(nextAvailable);
       setEvents([]);
+      setOverview(null);
+      setTopEvents([]);
     }
     setLoading(false);
   }, [user, role]);
@@ -108,19 +142,35 @@ export default function HomeScreen() {
     (item) => new Date(item.scannedAt) >= monthStart
   ).length;
   const totalScans = events.reduce((sum, event) => sum + event.attendeeCount, 0);
-  const now = Date.now();
   const liveCount = events.filter(
-    (event) =>
-      event.startTime &&
-      event.endTime &&
-      new Date(event.startTime).getTime() <= now &&
-      new Date(event.endTime).getTime() >= now
+    (event) => deriveEventStatus(event) === 'active'
+  ).length;
+  const liveAvailable = available.filter(
+    (event) => deriveEventStatus(event) === 'active'
   ).length;
 
   const isTeacher = role === 'teacher';
-  const accent = isTeacher ? COLORS.violet : COLORS.primary;
+  const isAdmin = role === 'admin';
+  const accent = isAdmin
+    ? COLORS.magenta
+    : isTeacher
+      ? COLORS.violet
+      : COLORS.primary;
+  const modeLabel = isAdmin
+    ? 'Administrator'
+    : isTeacher
+      ? 'Teacher mode'
+      : 'Student mode';
+  const modeIcon = isAdmin
+    ? 'shield-checkmark-outline'
+    : isTeacher
+      ? 'easel-outline'
+      : 'school-outline';
+  const modeTone = isAdmin ? 'violet' : isTeacher ? 'violet' : 'info';
+
   const recentEvents = events.slice(0, 3);
   const recentRecords = records.slice(0, 3);
+  const upcoming = available.slice(0, 3);
 
   return (
     <AppBackground>
@@ -132,8 +182,8 @@ export default function HomeScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={COLORS.primary}
-              colors={[COLORS.primary]}
+              tintColor={accent}
+              colors={[accent]}
               progressBackgroundColor={COLORS.card}
             />
           }
@@ -166,49 +216,110 @@ export default function HomeScreen() {
               {greeting}, {displayName}
             </Text>
             <Text style={styles.greetingSub}>
-              {isTeacher
-                ? 'Your attendance control room is ready.'
-                : 'Your check-in dashboard is up to date.'}
+              {isAdmin
+                ? 'Your campus operations overview is ready.'
+                : isTeacher
+                  ? 'Your attendance control room is ready.'
+                  : 'Your check-in dashboard is up to date.'}
             </Text>
           </FadeIn>
 
           <FadeIn delay={120}>
             <Card style={styles.hero} glow={accent}>
               <Ionicons
-                name="qr-code"
+                name={isAdmin ? 'shield-checkmark' : 'qr-code'}
                 size={170}
                 color={accent}
                 style={styles.heroWatermark}
               />
-              <Badge
-                label={isTeacher ? 'Teacher mode' : 'Student mode'}
-                tone={isTeacher ? 'violet' : 'info'}
-                icon={isTeacher ? 'easel-outline' : 'school-outline'}
-              />
+              <Badge label={modeLabel} tone={modeTone} icon={modeIcon} />
               <Text style={styles.heroTitle}>
-                {isTeacher ? 'Run your next session.' : 'Ready to check in?'}
+                {isAdmin
+                  ? 'Oversee the whole campus.'
+                  : isTeacher
+                    ? 'Run your next session.'
+                    : 'Ready to check in?'}
               </Text>
               <Text style={styles.heroText}>
-                {isTeacher
-                  ? 'Create an event, generate a QR, and monitor check-ins from one console.'
-                  : 'Point your camera at an event QR code and your attendance is recorded instantly.'}
+                {isAdmin
+                  ? 'Review users, sessions, and attendance records from a single administrator console.'
+                  : isTeacher
+                    ? 'Create an event, generate a QR, and monitor check-ins from one console.'
+                    : 'Browse open events or point your camera at an event QR code to record attendance instantly.'}
               </Text>
               <View style={styles.heroAction}>
                 <AppButton
                   variant="primary"
-                  title={isTeacher ? 'Create Event' : 'Scan QR Code'}
-                  icon={isTeacher ? 'add-circle-outline' : 'scan-outline'}
+                  title={
+                    isAdmin
+                      ? 'Open Admin Console'
+                      : isTeacher
+                        ? 'Create Event'
+                        : 'Scan QR Code'
+                  }
+                  icon={
+                    isAdmin
+                      ? 'shield-outline'
+                      : isTeacher
+                        ? 'add-circle-outline'
+                        : 'scan-outline'
+                  }
                   onPress={() =>
-                    router.push(isTeacher ? '/teacher' : '/scan')
+                    router.push(
+                      isAdmin
+                        ? '/admin'
+                        : isTeacher
+                          ? '/teacher'
+                          : '/scan'
+                    )
                   }
                 />
               </View>
+              {!isTeacher && !isAdmin ? (
+                <Pressable
+                  onPress={() => router.push('/available-events')}
+                  style={({ pressed }) => [
+                    styles.heroLink,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.heroLinkText}>
+                    Browse available events
+                  </Text>
+                  <Ionicons
+                    name="arrow-forward"
+                    size={14}
+                    color={COLORS.primary}
+                  />
+                </Pressable>
+              ) : null}
             </Card>
           </FadeIn>
 
           <FadeIn delay={180}>
             <View style={styles.statsRow}>
-              {isTeacher ? (
+              {isAdmin ? (
+                <>
+                  <StatCard
+                    icon="people-outline"
+                    value={loading ? '—' : (overview?.totalStudents ?? 0)}
+                    label="Students"
+                    accent={COLORS.primary}
+                  />
+                  <StatCard
+                    icon="checkmark-done-outline"
+                    value={loading ? '—' : (overview?.totalAttendance ?? 0)}
+                    label="Check-ins"
+                    accent={COLORS.success}
+                  />
+                  <StatCard
+                    icon="radio-outline"
+                    value={loading ? '—' : (overview?.activeEvents ?? 0)}
+                    label="Live events"
+                    accent={COLORS.violet}
+                  />
+                </>
+              ) : isTeacher ? (
                 <>
                   <StatCard
                     icon="calendar-outline"
@@ -239,21 +350,15 @@ export default function HomeScreen() {
                   />
                   <StatCard
                     icon="calendar-outline"
-                    value={loading ? '—' : monthCount}
-                    label="This month"
-                    accent={COLORS.success}
+                    value={loading ? '—' : available.length}
+                    label="Open events"
+                    accent={COLORS.warning}
                   />
                   <StatCard
                     icon="time-outline"
-                    value={
-                      loading
-                        ? '—'
-                        : recentRecords[0]
-                          ? formatShort(recentRecords[0].scannedAt)
-                          : 'None'
-                    }
-                    label="Last scan"
-                    accent={COLORS.violet}
+                    value={loading ? '—' : monthCount}
+                    label="This month"
+                    accent={COLORS.success}
                   />
                 </>
               )}
@@ -263,7 +368,31 @@ export default function HomeScreen() {
           <FadeIn delay={240}>
             <SectionHeader title="Quick actions" caption="One tap to go" />
             <View style={styles.actionsRow}>
-              {isTeacher ? (
+              {isAdmin ? (
+                <>
+                  <ActionTile
+                    icon="shield-outline"
+                    label="Users"
+                    caption="Manage roles"
+                    accent={COLORS.violet}
+                    onPress={() => router.push('/admin')}
+                  />
+                  <ActionTile
+                    icon="calendar-outline"
+                    label="Events"
+                    caption="All sessions"
+                    accent={COLORS.primary}
+                    onPress={() => router.push('/teacher')}
+                  />
+                  <ActionTile
+                    icon="clipboard-outline"
+                    label="Records"
+                    caption="Attendance"
+                    accent={COLORS.success}
+                    onPress={() => router.push('/history')}
+                  />
+                </>
+              ) : isTeacher ? (
                 <>
                   <ActionTile
                     icon="add-circle-outline"
@@ -290,25 +419,25 @@ export default function HomeScreen() {
               ) : (
                 <>
                   <ActionTile
+                    icon="calendar-outline"
+                    label="Events"
+                    caption={`${liveAvailable} live`}
+                    accent={COLORS.primary}
+                    onPress={() => router.push('/available-events')}
+                  />
+                  <ActionTile
                     icon="scan-outline"
                     label="Scan QR"
                     caption="Check in"
-                    accent={COLORS.primary}
+                    accent={COLORS.success}
                     onPress={() => router.push('/scan')}
                   />
                   <ActionTile
                     icon="time-outline"
                     label="History"
                     caption="View logs"
-                    accent={COLORS.success}
-                    onPress={() => router.push('/history')}
-                  />
-                  <ActionTile
-                    icon="person-outline"
-                    label="Profile"
-                    caption="Account"
                     accent={COLORS.violet}
-                    onPress={() => router.push('/profile')}
+                    onPress={() => router.push('/history')}
                   />
                 </>
               )}
@@ -317,17 +446,75 @@ export default function HomeScreen() {
 
           <FadeIn delay={300}>
             <SectionHeader
-              title={isTeacher ? 'Recent sessions' : 'Recent activity'}
+              title={
+                isAdmin
+                  ? 'Top sessions'
+                  : isTeacher
+                    ? 'Recent sessions'
+                    : 'Upcoming events'
+              }
               caption={
-                isTeacher
-                  ? 'Latest events you created'
-                  : 'Your latest check-ins'
+                isAdmin
+                  ? 'Highest check-in volume'
+                  : isTeacher
+                    ? 'Latest events you created'
+                    : 'Open sessions on campus'
               }
               actionLabel="View all"
-              onAction={() => router.push('/history')}
+              onAction={() =>
+                router.push(
+                  isAdmin
+                    ? '/teacher'
+                    : isTeacher
+                      ? '/history'
+                      : '/available-events'
+                )
+              }
             />
 
-            {isTeacher ? (
+            {isAdmin ? (
+              topEvents.length === 0 ? (
+                <Card style={styles.emptyCard}>
+                  <View style={styles.emptyIcon}>
+                    <Ionicons
+                      name="bar-chart-outline"
+                      size={22}
+                      color={COLORS.violet}
+                    />
+                  </View>
+                  <View style={styles.emptyText}>
+                    <Text style={styles.emptyTitle}>No ranked sessions yet</Text>
+                    <Text style={styles.emptyMessage}>
+                      Check-in activity will surface the most attended events.
+                    </Text>
+                  </View>
+                </Card>
+              ) : (
+                <View style={styles.activityList}>
+                  {topEvents.map((event, index) => (
+                    <Card key={event.id} style={styles.activityCard}>
+                      <View style={styles.rank}>
+                        <Text style={styles.rankText}>{index + 1}</Text>
+                      </View>
+                      <View style={styles.activityBody}>
+                        <Text style={styles.activityTitle} numberOfLines={1}>
+                          {event.title}
+                        </Text>
+                        <Text style={styles.activityMeta} numberOfLines={1}>
+                          {event.event_code}
+                          {event.venue ? ` · ${event.venue}` : ''}
+                        </Text>
+                      </View>
+                      <Badge
+                        label={`${event.attendeeCount}`}
+                        tone="success"
+                        icon="people-outline"
+                      />
+                    </Card>
+                  ))}
+                </View>
+              )
+            ) : isTeacher ? (
               recentEvents.length === 0 ? (
                 <Card style={styles.emptyCard}>
                   <View style={styles.emptyIcon}>
@@ -375,23 +562,67 @@ export default function HomeScreen() {
                   ))}
                 </View>
               )
-            ) : recentRecords.length === 0 ? (
+            ) : upcoming.length === 0 ? (
               <Card style={styles.emptyCard}>
                 <View style={styles.emptyIcon}>
                   <Ionicons
-                    name="qr-code-outline"
+                    name="calendar-clear-outline"
                     size={22}
                     color={COLORS.primary}
                   />
                 </View>
                 <View style={styles.emptyText}>
-                  <Text style={styles.emptyTitle}>No check-ins yet</Text>
+                  <Text style={styles.emptyTitle}>No open events</Text>
                   <Text style={styles.emptyMessage}>
-                    Scan an event QR to start building your attendance log.
+                    Check back after your teacher publishes a new session.
                   </Text>
                 </View>
               </Card>
             ) : (
+              <View style={styles.activityList}>
+                {upcoming.map((event) => (
+                  <Card key={event.id} style={styles.activityCard}>
+                    <View style={styles.activityIcon}>
+                      <Ionicons
+                        name={
+                          deriveEventStatus(event) === 'active'
+                            ? 'radio'
+                            : 'calendar-outline'
+                        }
+                        size={18}
+                        color={
+                          deriveEventStatus(event) === 'active'
+                            ? COLORS.success
+                            : COLORS.primary
+                        }
+                      />
+                    </View>
+                    <View style={styles.activityBody}>
+                      <Text style={styles.activityTitle} numberOfLines={1}>
+                        {event.title}
+                      </Text>
+                      <Text style={styles.activityMeta} numberOfLines={1}>
+                        {event.venue || 'Venue TBA'}
+                        {event.start_time
+                          ? ` · ${formatShort(event.start_time)}`
+                          : ''}
+                      </Text>
+                    </View>
+                    <StatusBadge status={deriveEventStatus(event)} />
+                  </Card>
+                ))}
+              </View>
+            )}
+          </FadeIn>
+
+          {!isAdmin && !isTeacher && recentRecords.length > 0 ? (
+            <FadeIn delay={350}>
+              <SectionHeader
+                title="Recent activity"
+                caption="Your latest check-ins"
+                actionLabel="History"
+                onAction={() => router.push('/history')}
+              />
               <View style={styles.activityList}>
                 {recentRecords.map((record) => (
                   <Card key={record.id} style={styles.activityCard}>
@@ -410,12 +641,12 @@ export default function HomeScreen() {
                         {record.eventId} · {formatWhen(record.scannedAt)}
                       </Text>
                     </View>
-                    <Badge label="Present" tone="success" />
+                    <StatusBadge status={record.status} />
                   </Card>
                 ))}
               </View>
-            )}
-          </FadeIn>
+            </FadeIn>
+          ) : null}
 
           <View style={styles.bottomSpace} />
         </ScrollView>
@@ -429,6 +660,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
+    width: '100%',
+    maxWidth: 640,
+    alignSelf: 'center',
     paddingHorizontal: SPACING.xl,
     paddingTop: SPACING.sm,
   },
@@ -502,6 +736,18 @@ const styles = StyleSheet.create({
   heroAction: {
     marginTop: SPACING.md,
   },
+  heroLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    marginTop: SPACING.sm,
+  },
+  heroLinkText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
   statsRow: {
     flexDirection: 'row',
     gap: SPACING.sm,
@@ -543,6 +789,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.textSecondary,
     marginTop: 2,
+  },
+  rank: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8B5CF61F',
+  },
+  rankText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.violet,
   },
   emptyCard: {
     flexDirection: 'row',

@@ -1,6 +1,5 @@
 import { useCallback, useState } from 'react';
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -31,6 +30,8 @@ import {
   getAttendanceHistory,
   getTeacherEventAttendance,
 } from '@/lib/attendance';
+import { getAdminOverview, type AdminOverview } from '@/lib/admin';
+import { confirmAction } from '@/lib/dialogs';
 
 function InfoRow({
   icon,
@@ -73,12 +74,16 @@ export default function ProfileScreen() {
   const [checkIns, setCheckIns] = useState(0);
   const [sessions, setSessions] = useState(0);
   const [totalScans, setTotalScans] = useState(0);
+  const [overview, setOverview] = useState<AdminOverview | null>(null);
 
   const load = useCallback(async () => {
     if (!user) return;
     const next = await refresh();
     setDraftName(next?.full_name ?? '');
-    if (role === 'teacher') {
+    if (role === 'admin') {
+      const result = await getAdminOverview();
+      setOverview(result.data);
+    } else if (role === 'teacher') {
       const events = await getTeacherEventAttendance(user.id);
       setSessions(events.length);
       setTotalScans(events.reduce((sum, event) => sum + event.attendeeCount, 0));
@@ -113,31 +118,41 @@ export default function ProfileScreen() {
     setMessage('Profile updated.');
   };
 
-  const handleSignOut = () => {
-    Alert.alert(
-      'Sign out',
-      'You will need your email and password to sign back in.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            setSigningOut(true);
-            try {
-              await signOut();
-              router.replace('/login');
-            } finally {
-              setSigningOut(false);
-            }
-          },
-        },
-      ]
-    );
+  const completeSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await signOut();
+      router.replace('/login');
+    } finally {
+      setSigningOut(false);
+    }
   };
 
+  const handleSignOut = () => {
+    confirmAction({
+      title: 'Sign out',
+      message: 'You will need your email and password to sign back in.',
+      confirmLabel: 'Sign Out',
+      destructive: true,
+      onConfirm: completeSignOut,
+    });
+  };
+
+  const isAdmin = role === 'admin';
   const isTeacher = role === 'teacher';
-  const accent = isTeacher ? COLORS.violet : COLORS.primary;
+  const accent = isAdmin
+    ? COLORS.magenta
+    : isTeacher
+      ? COLORS.violet
+      : COLORS.primary;
+  const roleLabel = isAdmin ? 'Administrator' : isTeacher ? 'Teacher' : 'Student';
+  const roleIcon = isAdmin
+    ? 'shield-checkmark-outline'
+    : isTeacher
+      ? 'easel-outline'
+      : 'school-outline';
+  const roleTone = isAdmin ? 'violet' : isTeacher ? 'violet' : 'info';
   const displayName = profile?.full_name || 'Add your name';
   const memberSince = profile?.created_at
     ? new Date(profile.created_at).toLocaleDateString(undefined, {
@@ -160,11 +175,7 @@ export default function ProfileScreen() {
               title="Profile"
               subtitle="Your identity, role, and secure session details."
               right={
-                <Badge
-                  label={isTeacher ? 'Teacher' : 'Student'}
-                  tone={isTeacher ? 'violet' : 'info'}
-                  icon={isTeacher ? 'easel-outline' : 'school-outline'}
-                />
+                <Badge label={roleLabel} tone={roleTone} icon={roleIcon} />
               }
             />
           </FadeIn>
@@ -191,8 +202,9 @@ export default function ProfileScreen() {
               </Text>
               <View style={styles.heroMeta}>
                 <Badge
-                  label={`${isTeacher ? 'Teacher' : 'Student'} account`}
-                  tone={isTeacher ? 'violet' : 'info'}
+                  label={`${roleLabel} account`}
+                  tone={roleTone}
+                  icon={roleIcon}
                 />
                 <Text style={styles.memberSince}>Since {memberSince}</Text>
               </View>
@@ -201,7 +213,28 @@ export default function ProfileScreen() {
 
           <FadeIn delay={110}>
             <View style={styles.statsRow}>
-              {isTeacher ? (
+              {isAdmin ? (
+                <>
+                  <StatCard
+                    icon="people-outline"
+                    value={overview?.totalStudents ?? 0}
+                    label="Students"
+                    accent={COLORS.primary}
+                  />
+                  <StatCard
+                    icon="checkmark-done-outline"
+                    value={overview?.totalAttendance ?? 0}
+                    label="Check-ins"
+                    accent={COLORS.success}
+                  />
+                  <StatCard
+                    icon="calendar-outline"
+                    value={overview?.totalEvents ?? 0}
+                    label="Events"
+                    accent={COLORS.violet}
+                  />
+                </>
+              ) : isTeacher ? (
                 <>
                   <StatCard
                     icon="calendar-outline"
@@ -323,7 +356,7 @@ export default function ProfileScreen() {
               <InfoRow
                 icon="shield-checkmark-outline"
                 label="Role"
-                value={isTeacher ? 'Teacher' : 'Student'}
+                value={roleLabel}
               />
               <View style={styles.divider} />
               <InfoRow
@@ -386,6 +419,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
+    width: '100%',
+    maxWidth: 640,
+    alignSelf: 'center',
     paddingHorizontal: SPACING.xl,
     paddingTop: SPACING.sm,
   },

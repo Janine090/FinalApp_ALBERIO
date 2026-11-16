@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 
 import { COLORS } from '@/constants/colors';
 
 export default function ScanFrame({ size = 260 }: { size?: number }) {
-  const progress = useRef(new Animated.Value(0)).current;
+  const [progress] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     const animation = Animated.loop(

@@ -22,6 +22,7 @@ import LogoMark from '@/components/ui/LogoMark';
 import { COLORS } from '@/constants/colors';
 import { SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { signIn, authErrorMessage } from '@/lib/auth';
+import { isValidEmail } from '@/lib/validation';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -31,23 +32,36 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
+    if (loading) return;
     setError(null);
     if (!email.trim() || !password) {
       setError('Enter your email and password to continue.');
       return;
     }
+    if (!isValidEmail(email)) {
+      setError('Enter a valid email address.');
+      return;
+    }
     setLoading(true);
 
     try {
-      const { error: authError } = await signIn(email.trim(), password);
+      const { error: authError, configError } = await signIn(
+        email.trim(),
+        password
+      );
 
-      if (authError) {
-        setError(authErrorMessage(authError.message));
+      if (configError) {
+        setError(configError);
+      } else if (authError) {
+        setError(authErrorMessage(authError));
       } else {
         router.replace('/(tabs)');
       }
-    } catch (err: any) {
-      setError(err?.message || 'Unexpected error');
+    } catch (err) {
+      if (__DEV__) {
+        console.error('[login] signIn failed', err);
+      }
+      setError(authErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -80,8 +94,7 @@ export default function LoginScreen() {
 
             <FadeIn delay={70}>
               <View style={styles.hero}>
-                <Text style={styles.eyebrow}>Welcome back</Text>
-                <Text style={styles.title}>Attendance,{'\n'}engineered.</Text>
+                <Text style={styles.title}>QR ATTENDANCE</Text>
                 <Text style={styles.subtitle}>
                   Sign in to scan event QR codes, track your check-ins, and
                   manage attendance in real time.
@@ -92,12 +105,11 @@ export default function LoginScreen() {
             <FadeIn delay={130}>
               <View style={styles.features}>
                 <Badge label="QR powered" tone="info" icon="qr-code-outline" />
-                <Badge label="Cloud sync" tone="violet" icon="cloud-outline" />
-                <Badge label="Cloud logs" tone="neutral" icon="cloud-outline" />
               </View>
             </FadeIn>
 
             <FadeIn delay={190}>
+              <Text style={styles.welcome}>Welcome back</Text>
               <Card style={styles.formCard} glow={COLORS.primary}>
                 <Text style={styles.formEyebrow}>Secure access</Text>
                 <Text style={styles.formTitle}>Sign in</Text>
@@ -182,6 +194,9 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
     paddingHorizontal: SPACING.xl,
     paddingTop: SPACING.lg,
     paddingBottom: SPACING.xxl,
@@ -214,9 +229,11 @@ const styles = StyleSheet.create({
   hero: {
     marginBottom: SPACING.xl,
   },
-  eyebrow: {
-    ...TYPOGRAPHY.eyebrow,
-    color: COLORS.primary,
+  welcome: {
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+    color: COLORS.textPrimary,
     marginBottom: SPACING.sm,
   },
   title: {

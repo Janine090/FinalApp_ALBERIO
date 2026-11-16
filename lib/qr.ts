@@ -33,11 +33,14 @@ export function parseQRPayload(raw: string): ParseQRResult {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { ok: false, message: 'Invalid QR code.' };
+    return {
+      ok: false,
+      message: 'This QR code is invalid or no longer available.',
+    };
   }
 
   if (parsed.v !== 1 || typeof parsed.event !== 'string' || !parsed.event) {
-    return { ok: false, message: 'Not an attendance QR code.' };
+    return { ok: false, message: 'This is not a QR-ATT attendance code.' };
   }
 
   return { ok: true, payload: parsed as QRPayload };

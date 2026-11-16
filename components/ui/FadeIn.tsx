@@ -1,4 +1,4 @@
-import { useEffect, useRef, type PropsWithChildren } from 'react';
+import { useEffect, useState, type PropsWithChildren } from 'react';
 import {
   Animated,
   type StyleProp,
@@ -17,35 +17,31 @@ export default function FadeIn({
   distance = 14,
   style,
 }: FadeInProps) {
-  const progress = useRef(new Animated.Value(0)).current;
+  const [progress] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
-    Animated.timing(progress, {
+    const animation = Animated.timing(progress, {
       toValue: 1,
       duration: 420,
       delay,
       useNativeDriver: true,
-    }).start();
+    });
+
+    animation.start();
+    return () => animation.stop();
   }, [delay, progress]);
 
-  return (
-    <Animated.View
-      style={[
-        style,
-        {
-          opacity: progress,
-          transform: [
-            {
-              translateY: progress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [distance, 0],
-              }),
-            },
-          ],
-        },
-      ]}
-    >
-      {children}
-    </Animated.View>
-  );
+  const animatedStyle = {
+    opacity: progress,
+    transform: [
+      {
+        translateY: progress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [distance, 0],
+        }),
+      },
+    ],
+  } as const;
+
+  return <Animated.View style={[style, animatedStyle]}>{children}</Animated.View>;
 }

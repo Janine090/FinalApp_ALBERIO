@@ -33,8 +33,10 @@ function TabIcon({
 
 function TabNavigator() {
   const { role } = useProfile();
-  const hideTeacher = role !== null && role !== 'teacher';
-  const hideScan = role === 'teacher';
+  const isStaff = role === 'teacher' || role === 'admin';
+  const hideTeacher = !isStaff;
+  const hideScan = isStaff;
+  const hideAdmin = role !== 'admin';
 
   return (
     <Tabs
@@ -98,6 +100,20 @@ function TabNavigator() {
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               name={focused ? 'calendar' : 'calendar-outline'}
+              focused={focused}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="admin"
+        options={{
+          title: 'Admin',
+          href: hideAdmin ? null : undefined,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              name={focused ? 'shield' : 'shield-outline'}
               focused={focused}
               color={color}
             />

@@ -2,7 +2,7 @@
 
 ## 1. 30-second pitch
 
-> "Our QR Attendance App replaces manual roll call with a fast, secure, role-based check-in system. Teachers create an event and generate a QR code. Students scan it with their phone, and their attendance is saved instantly to the cloud. The app has separate experiences for teachers and students, a modern dashboard-style interface, secure sessions, and database-level security rules."
+> "Our QR Attendance App replaces manual roll call with a fast, secure, role-based check-in system. Teachers create an event and generate a QR code. Students scan it with their phone, and their attendance is saved instantly to the cloud. Administrators get a campus-wide dashboard for users, events, and attendance, while students and teachers each get a focused experience. The app has a modern dashboard-style interface, secure sessions, and database-level security rules."
 
 ---
 
@@ -11,15 +11,18 @@
 | Area | Before | After |
 | --- | --- | --- |
 | Visual style | Default white screens, mixed emoji icons, basic cards | Dark navy "IT dashboard" theme with cyan/violet accents, consistent Ionicons, custom SVG logo and background |
-| Navigation | Same tabs for everyone | Role-aware tabs: students get Scan and History; teachers get Events and History |
-| Dashboard | Simple list of actions | Greeting, live stats, hero action card, quick actions, recent activity, pull-to-refresh |
-| Teacher flow | Basic form and QR code | Event console with auto-generated code, date/time pickers, duration chips, QR card, share button, recent sessions |
-| Scanner | Plain camera view | Animated scan frame, torch control, identity pill, permission screen, result sheet, teacher guard |
-| History | Basic list | Role-aware stats, student timeline, expandable teacher attendee lists, empty states |
-| Profile | Basic text | Avatar hero, editable display name, account details, system info, sign-out confirmation |
-| Auth | Plain forms | Branded login/register, password visibility, role cards, inline validation and success states |
+| Navigation | Same tabs for everyone | Role-aware tabs: students get Scan and History; teachers get Events and History; admins also get an Admin tab |
+| Dashboard | Simple list of actions | Greeting, live stats, role-specific hero card, quick actions, recent activity, pull-to-refresh |
+| Student flow | Scan and history only | Available-events screen with venue, schedule, live status, and a direct scan action |
+| Teacher flow | Basic form and QR code | Event console with venue, description, status, editing, close-event control, QR sharing, and attendance viewer |
+| Admin flow | None | Campus dashboard with real user/event/attendance totals, user role management, event oversight, and attendance correction |
+| Attendance records | Checked-in only | Present / late / absent statuses, automatic 15-minute late rule, and admin correction |
+| Scanner | Plain camera view | Animated scan frame, torch control, identity pill, permission screen, result sheet, staff guard |
+| History | Basic list | Role-aware stats, student status timeline, expandable staff attendee lists, event status badges |
+| Profile | Basic text | Avatar hero, editable display name, role-aware stats, account details, system info, sign-out confirmation |
+| Auth | Plain forms | Branded login/register, password visibility, role cards, stronger validation, inline errors and success states |
 | Session storage | AsyncStorage | Chunked Expo SecureStore adapter with automatic token refresh |
-| Security | UI-level role checks | Database RLS policies, teacher-only event creation, DB-based event time validation, duplicate prevention |
+| Security | UI-level role checks | Database RLS policies, staff-only event management, admin-only role changes, DB time validation, protected role trigger, duplicate prevention |
 | Code structure | Repeated screen styles | Shared design tokens and reusable UI components |
 
 ---
@@ -28,19 +31,29 @@
 
 ### Student
 - Registers or logs in.
-- Sees a personal dashboard with check-in count and last scan.
+- Sees a personal dashboard with check-in count, open events, and monthly activity.
+- Browses available events with venue, schedule, and live/upcoming status.
 - Opens the scanner and scans the teacher's event QR.
 - Gets a clear success, duplicate, early, late, or invalid-code message.
-- Reviews attendance history with dates and event titles.
+- Reviews attendance history with event, venue, date, and present/late status.
 - Edits display name and signs out securely.
 
 ### Teacher
 - Registers or logs in as a teacher.
-- Creates an event with a title, date, start time, end time, and auto-generated event code.
-- Generates a QR code and shares it with students.
+- Creates an event with a title, venue, description, date, start time, end time, and auto-generated event code.
+- Edits event details later without changing the QR code.
+- Generates a QR code, shares it with students, and closes the event when finished.
+- Views attendee names, scan times, and present/late statuses.
 - Monitors check-ins in the History tab.
-- Expands an event to see attendee names and scan times.
 - Edits profile and signs out securely.
+
+### Administrator
+- Is promoted from a normal account in the Supabase SQL Editor; admin is not a public signup role.
+- Sees real campus totals for students, teachers, admins, events, live events, check-ins, and attendance rate.
+- Searches accounts and changes a user between student, teacher, and admin.
+- Oversees every event, opens the event console, and closes sessions.
+- Reviews recent attendance and corrects records to present, late, or absent.
+- Sees the most-attended sessions without any demo or hardcoded numbers.
 
 ---
 
@@ -67,18 +80,20 @@ app/
   _layout.tsx          Root stack, session redirect, loading screen
   login.tsx            Branded login
   register.tsx         Branded registration with role selection
+  available-events.tsx Student event discovery
   (tabs)/
     _layout.tsx        Role-aware floating tab bar
-    index.tsx          Dashboard
-    teacher.tsx        Event creation + QR console
+    index.tsx          Role-specific dashboard
+    teacher.tsx        Event create/edit/close + QR console
     scan.tsx           Camera scanner + attendance result
-    history.tsx        Student/teacher attendance log
+    history.tsx        Student/staff attendance log
+    admin.tsx          Campus administration dashboard
     profile.tsx        Profile and account settings
 
 components/
   ProfileProvider.tsx  Shared profile/role context
   AppButton.tsx        Button variants
-  ui/                  Design-system components
+  ui/                  Design-system components (including StatusBadge)
 
 constants/
   colors.ts            Color palette
@@ -88,9 +103,11 @@ lib/
   supabase.ts          Supabase client + secure session storage + token refresh
   secureStorage.ts     Chunked SecureStore adapter
   auth.ts              Sign-in, sign-up, sign-out, profile sync, error messages
-  profiles.ts          Profile queries and updates
-  events.ts            Event creation and lookup
-  attendance.ts        Attendance registration and history
+  profiles.ts          Profile queries, role updates
+  events.ts            Event CRUD, status derivation, available events
+  attendance.ts        Attendance registration, history, staff logs
+  admin.ts             Admin statistics, users, events, attendance correction
+  validation.ts        Email, password, and event validation
   qr.ts                QR payload build/parse
 
 supabase/
@@ -119,10 +136,11 @@ supabase/
 5. `react-native-qrcode-svg` renders the payload as a QR code.
 6. A student scans the QR with `expo-camera`.
 7. The app parses the payload and fetches the event from Supabase by event code.
-8. The app checks the **database** start and end times, so a modified QR cannot bypass the event window.
+8. The app checks the **database** event status and start/end times, so a modified QR cannot bypass the event window or a closed event.
 9. The app inserts one attendance row for the signed-in student.
 10. A unique constraint `(student_id, event_id)` prevents duplicate check-ins.
-11. The result is shown as a success, duplicate, early, late, or invalid message.
+11. A database trigger marks a check-in as **late** after the first 15 minutes; admins can later correct the status.
+12. The result is shown as a success, duplicate, early, late, closed, or invalid message.
 
 ---
 
@@ -133,15 +151,26 @@ These are the strongest engineering talking points:
 - **Authentication required** - attendance and event data require a signed-in Supabase user.
 - **Secure session storage** - tokens are stored in encrypted SecureStore, not plain AsyncStorage. The adapter splits large tokens into chunks because SecureStore has a value size limit.
 - **Automatic token refresh** - the Supabase client refreshes sessions when the app returns to the foreground.
-- **Database-level roles** - the `public.is_teacher(uid)` function checks the profile role. Only teacher accounts can insert events through the API, even if someone bypasses the UI.
-- **RLS on all tables** - students can read their own attendance, teachers can read attendance for events they created, and profiles are limited to the owner or a teacher with a legitimate attendance relationship.
+- **Database-level roles** - `public.is_student(uid)`, `public.is_teacher(uid)`, `public.is_admin(uid)`, and `public.is_staff(uid)` resolve roles on the server. Only staff can create or update events, only students can check in, and only admins can change roles.
+- **RLS on all tables** - students can read their own attendance, teachers can read attendance and attendee profiles for events they created, and admins can read and manage all records.
+- **Protected role changes** - a trigger blocks non-admin users from promoting themselves or changing another account's role, even if they call the API directly.
+- **Status integrity** - attendance accepts only `present`, `late`, or `absent`; a trigger derives late status after 15 minutes, and only admins can correct records.
+- **Event lifecycle** - events move through `upcoming`, `active`, and `closed`; closing an event blocks new scans even if an old QR is shared.
 - **Duplicate prevention** - a database unique constraint plus handling of error code `23505` stops double check-ins.
 - **Server-side time validation** - the app uses the event's stored start/end times, not only the QR payload.
-- **No unknown-event creation** - scanning a QR for an event that does not exist returns "Event not found" instead of creating an event from the student's device.
-- **UI guards** - students do not see the Events tab, teachers do not see the Scan tab, and direct access to a restricted screen shows a locked state.
+- **No unknown-event creation** - scanning a QR for an event that does not exist returns a clear invalid-code message instead of creating an event from the student's device.
+- **UI guards** - students do not see the Events or Admin tabs, staff do not see the Scan tab, and direct access to a restricted screen shows a locked state.
 - **No secret keys in the app** - only the Supabase publishable/anon key is used. The service role key is never shipped.
 
-> Important: re-run `supabase/schema.sql` in the Supabase SQL Editor once so the new `is_teacher` function and "Teachers can insert events" policy are applied.
+> Important: run the updated `supabase/schema.sql` in the Supabase SQL Editor once. It adds `events.venue`, `events.description`, `events.status`, `attendance.status`, admin role support, the role-protection trigger, and the new RLS policies. Existing data is preserved.
+>
+> Then promote your admin account from the SQL Editor:
+>
+> ```sql
+> update public.profiles
+> set role = 'admin'
+> where email = 'admin@your-school.edu';
+> ```
 
 ---
 
@@ -165,10 +194,10 @@ Use this section when explaining the redesign:
 
 ### Before the demo
 - Run the updated `supabase/schema.sql` in the Supabase SQL Editor.
-- Prepare one teacher account and one student account.
-- Prepare two devices if possible: one teacher device and one student device.
+- Prepare one student, one teacher, and one admin account. Promote the admin account with the SQL command above.
+- Prepare two devices if possible: one staff device and one student device.
 - Make sure both devices have internet.
-- Test one full flow before presenting: create event, scan, check history, scan again.
+- Test one full flow before presenting: create event, scan, check history, scan again, then open the admin dashboard.
 
 ### Demo steps
 
@@ -181,16 +210,18 @@ Use this section when explaining the redesign:
 2. **Create an event**
    - Open Events.
    - Show the auto-generated event code.
-   - Enter a title such as "Finals Demo".
+   - Enter a title such as "Finals Demo", a venue, and a short description.
    - Pick today's date and a start/end time that includes the current time.
    - Point out the duration chips.
-   - Tap Generate QR.
+   - Tap Create & Generate QR.
    - Show the QR card and event details. Tap Share if you want to show the share sheet.
+   - Demonstrate Edit and explain that the event code stays locked for QR compatibility.
+   - Mention the Close action and that it stops new check-ins.
 
 3. **Login as student**
    - On the second device, log in with the student account.
-   - Point out the dashboard differences: check-in count, last scan, and a Scan tab.
-   - Explain that the same app changes its navigation based on the profile role.
+   - Point out the dashboard differences: check-in count, open events, monthly activity, and a Scan tab.
+   - Open Available Events to show venue, schedule, and live/upcoming status.
 
 4. **Scan the QR**
    - Open Scan.
@@ -201,18 +232,26 @@ Use this section when explaining the redesign:
    - Scan the same QR again and show the duplicate message.
 
 5. **Show history**
-   - On the student device, open History and show the timeline card with the event and scan time.
-   - On the teacher device, open History and expand the event.
-   - Show attendee names and scan times.
+   - On the student device, open History and show the event, venue, scan time, and present/late badge.
+   - On the staff device, open History and expand the event.
+   - Show attendee names, scan times, and attendance statuses.
 
-6. **Show profile**
+6. **Show admin control**
+   - Sign in with the promoted admin account.
+   - Open Admin and point out real totals, attendance rate, present/late/absent counts, and top sessions.
+   - Search for the student account, open Change role, and show the role options.
+   - Open Events in the admin dashboard and demonstrate closing a session.
+   - Open Attendance and demonstrate correcting a record's status.
+   - Explain that admin role changes are blocked for non-admins in the database.
+
+7. **Show profile**
    - Open Profile.
    - Edit the display name and save.
-   - Show account details and system information.
+   - Show role-aware account details and system information.
    - Tap Sign out and show the confirmation dialog.
 
-7. **Close strongly**
-   - "The UI is now a role-based dashboard, but the important part is under the hood: secure sessions, database-enforced roles, RLS, duplicate prevention, and server-side time validation."
+8. **Close strongly**
+   - "This is not just a prettier UI. It is a complete attendance workflow with three roles, secure sessions, database-enforced permissions, event lifecycle controls, and auditable attendance records."
 
 ---
 
@@ -253,8 +292,11 @@ A student must be signed in. Attendance is tied to `auth.uid()`. The event must 
 **What if a student shares the QR code?**
 The event time window limits when it works, and each student can only check in once. A future version can use rotating QR codes or a short-lived signed token.
 
-**How are teacher and student roles enforced?**
-The UI hides teacher-only screens, and the database also enforces it with an `is_teacher` check in the event insert policy. Hiding a tab alone is not enough.
+**How are student, teacher, and admin roles enforced?**
+The UI hides screens that do not belong to the signed-in role, and the database enforces access with `is_teacher`, `is_staff`, and `is_admin` checks inside RLS policies. A trigger also blocks non-admins from changing profile roles. Hiding a tab alone is not enough.
+
+**How does the admin account exist if admin is not a signup role?**
+A normal account signs up first, then a project owner promotes it with an `update public.profiles set role = 'admin'` statement in the Supabase SQL Editor. This prevents anyone from self-registering as an administrator.
 
 **How is the session kept secure?**
 Supabase session data is stored with Expo SecureStore, which uses encrypted native storage. The app also refreshes the session when it returns to the foreground.
@@ -284,8 +326,8 @@ Be honest about these if asked:
 - QR payloads are not cryptographically signed yet; rotating/signed codes would make sharing harder.
 - No geofencing or device binding yet.
 - No CSV/PDF export yet.
-- No admin dashboard for managing all users and events yet.
-- Role assignment is not exposed in the app; in production, role changes should be admin-only.
+- Admin accounts are bootstrapped through SQL rather than an invitation flow.
+- Large campuses may need pagination and server-side search for the user directory.
 - No offline queue yet.
 
 These are good "next steps" because they show you understand the system and have a roadmap.
@@ -296,7 +338,7 @@ These are good "next steps" because they show you understand the system and have
 
 You can say it like this:
 
-> "Sa una, plain screens ra kaayo ang app ug parehas ra ang makita sa teacher ug student. Karon, gi-redesign nako siya into a dark dashboard-style UI with consistent icons, reusable components, ug role-based navigation. Ang teacher naay event console ug QR generator, ang student naay scanner ug attendance history. Ako pud gi-improve ang security: naka-SecureStore ang session, naay RLS sa Supabase, teacher-only ang event creation, gi-check ang event time sa database, ug naay duplicate prevention. So ang app karon mas nindot tan-awon, mas klaro ang flow, ug mas secure."
+> "Sa una, plain screens ra kaayo ang app ug parehas ra ang makita sa teacher ug student. Karon, gi-redesign nako siya into a dark dashboard-style UI with consistent icons, reusable components, ug role-based navigation. Ang student naay available events, scanner, ug attendance history. Ang teacher naay event console with edit, close, QR generator, ug attendee logs. Ang admin naay campus dashboard para sa users, events, ug attendance records. Ako pud gi-improve ang security: naka-SecureStore ang session, naay RLS sa Supabase, staff-only ang event creation, admin-only ang role changes, gi-check ang event time ug status sa database, ug naay duplicate prevention. So ang app karon mas nindot tan-awon, mas klaro ang flow, ug mas secure."
 
 ---
 
